@@ -12,21 +12,35 @@ from xgboost import XGBRegressor
 from statsmodels.tsa.arima.model import ARIMA
 
 import os
-
 # Load dataset
 df = pd.read_excel("data/crop_data.xlsx")
 
-df = df.select_dtypes(include=[np.number])
-df = df.fillna(method="ffill")
+print("Original shape:", df.shape)
+print(df.head())
 
-target = df.columns[0]
+# Keep numeric columns only
+df_numeric = df.select_dtypes(include=[np.number])
 
-df["lag1"] = df[target].shift(1)
-df = df.dropna()
+if df_numeric.shape[1] == 0:
+    raise ValueError("No numeric columns found in dataset")
 
-X = df[["lag1"]]
-y = df[target]
+# Choose first numeric column as target
+target = df_numeric.columns[0]
 
+# Fill missing values
+df_numeric = df_numeric.ffill()
+
+# Create lag feature
+df_numeric["lag1"] = df_numeric[target].shift(1)
+
+# Remove rows with NA
+df_numeric = df_numeric.dropna()
+
+print("Processed shape:", df_numeric.shape)
+
+# Features and target
+X = df_numeric[["lag1"]]
+y = df_numeric[target]
 X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.2, shuffle=False
 )
