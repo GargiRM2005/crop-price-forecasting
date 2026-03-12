@@ -14,25 +14,34 @@ from statsmodels.tsa.arima.model import ARIMA
 
 
 # -----------------------------
-# Load Dataset
+# Load dataset
 # -----------------------------
-df = pd.read_excel("data/crop_data.xlsx")
+df = pd.read_excel("data/crop_data.xlsx", header=1)
 
-print("Original dataset shape:", df.shape)
+print("Dataset shape:", df.shape)
 print(df.head())
 
 
 # -----------------------------
-# Data Cleaning
+# Data cleaning
 # -----------------------------
 
-# Forward fill missing values
+# Convert columns to numeric
+df = df.apply(pd.to_numeric, errors="coerce")
+
+# Fill missing values using previous value
 df = df.ffill()
 
-# Keep numeric columns only
+print("After filling missing values:", df.shape)
+
+
+# -----------------------------
+# Select numeric columns
+# -----------------------------
 df_numeric = df.select_dtypes(include=[np.number])
 
 print("Numeric columns:", df_numeric.columns)
+
 
 results = []
 
@@ -54,7 +63,7 @@ def evaluate(model_name, crop, y_true, y_pred):
 
 
 # -----------------------------
-# Run models for each crop
+# Run models for each column
 # -----------------------------
 for crop in df_numeric.columns:
 
@@ -62,18 +71,15 @@ for crop in df_numeric.columns:
 
     data = df_numeric[[crop]].copy()
 
-    # Skip if column mostly empty
-    if data[crop].count() < 20:
-        print("Skipping (too many missing values)")
-        continue
-
     # Create lag feature
     data["lag1"] = data[crop].shift(1)
+
+    # Fill lag missing values
+    data = data.ffill()
 
     data = data.dropna()
 
     if len(data) < 10:
-        print("Skipping (not enough data)")
         continue
 
     X = data[["lag1"]]
@@ -84,42 +90,42 @@ for crop in df_numeric.columns:
     )
 
 
-    # 1 Linear Regression
+    # Linear Regression
     lr = LinearRegression()
     lr.fit(X_train, y_train)
     pred = lr.predict(X_test)
     evaluate("Linear Regression", crop, y_test, pred)
 
 
-    # 2 Random Forest
+    # Random Forest
     rf = RandomForestRegressor()
     rf.fit(X_train, y_train)
     pred = rf.predict(X_test)
     evaluate("Random Forest", crop, y_test, pred)
 
 
-    # 3 SVR
+    # SVR
     svr = SVR()
     svr.fit(X_train, y_train)
     pred = svr.predict(X_test)
     evaluate("SVR", crop, y_test, pred)
 
 
-    # 4 Decision Tree
+    # Decision Tree
     dt = DecisionTreeRegressor()
     dt.fit(X_train, y_train)
     pred = dt.predict(X_test)
     evaluate("Decision Tree", crop, y_test, pred)
 
 
-    # 5 XGBoost
+    # XGBoost
     xgb = XGBRegressor()
     xgb.fit(X_train, y_train)
     pred = xgb.predict(X_test)
     evaluate("XGBoost", crop, y_test, pred)
 
 
-    # 6 ARIMA
+    # ARIMA
     try:
         arima = ARIMA(y_train, order=(1,1,1))
         model = arima.fit()
@@ -133,7 +139,7 @@ for crop in df_numeric.columns:
 
 
 # -----------------------------
-# Save Results
+# Save results
 # -----------------------------
 os.makedirs("results", exist_ok=True)
 
@@ -144,5 +150,5 @@ results_df.to_csv(
     index=False
 )
 
-print("\nFinal Model Comparison")
+print("\nFinal Model Comparison:")
 print(results_df)
