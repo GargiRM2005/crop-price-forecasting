@@ -14,41 +14,16 @@ from statsmodels.tsa.arima.model import ARIMA
 
 
 # -----------------------------
-# Load dataset
+# Load dataset (two header rows)
 # -----------------------------
-df = pd.read_excel("data/crop_data.xlsx", header=1)
+df = pd.read_excel("data/crop_data.xlsx", header=[0,1])
 
 print("Dataset shape:", df.shape)
 print(df.head())
 
 
-# -----------------------------
-# Data cleaning
-# -----------------------------
-
-# Convert columns to numeric
-df = df.apply(pd.to_numeric, errors="coerce")
-
-# Fill missing values using previous value
-df = df.ffill()
-
-print("After filling missing values:", df.shape)
-
-
-# -----------------------------
-# Select numeric columns
-# -----------------------------
-df_numeric = df.select_dtypes(include=[np.number])
-
-print("Numeric columns:", df_numeric.columns)
-
-
 results = []
 
-
-# -----------------------------
-# Evaluation function
-# -----------------------------
 def evaluate(model_name, crop, y_true, y_pred):
 
     mae = mean_absolute_error(y_true, y_pred)
@@ -63,70 +38,80 @@ def evaluate(model_name, crop, y_true, y_pred):
 
 
 # -----------------------------
-# Run models for each column
+# Extract crops automatically
 # -----------------------------
-for crop in df_numeric.columns:
+crops = df.columns.get_level_values(0).unique()
 
-    print("\nProcessing:", crop)
-
-    data = df_numeric[[crop]].copy()
-
-    # Create lag feature
-    data["lag1"] = data[crop].shift(1)
-
-    # Fill lag missing values
-    data = data.ffill()
-
-    data = data.dropna()
-
-    if len(data) < 10:
-        continue
-
-    X = data[["lag1"]]
-    y = data[crop]
-
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, shuffle=False
-    )
+print("Crops detected:", crops)
 
 
-    # Linear Regression
-    lr = LinearRegression()
-    lr.fit(X_train, y_train)
-    pred = lr.predict(X_test)
-    evaluate("Linear Regression", crop, y_test, pred)
+# -----------------------------
+# Run models for each crop
+# -----------------------------
+for crop in crops:
 
-
-    # Random Forest
-    rf = RandomForestRegressor()
-    rf.fit(X_train, y_train)
-    pred = rf.predict(X_test)
-    evaluate("Random Forest", crop, y_test, pred)
-
-
-    # SVR
-    svr = SVR()
-    svr.fit(X_train, y_train)
-    pred = svr.predict(X_test)
-    evaluate("SVR", crop, y_test, pred)
-
-
-    # Decision Tree
-    dt = DecisionTreeRegressor()
-    dt.fit(X_train, y_train)
-    pred = dt.predict(X_test)
-    evaluate("Decision Tree", crop, y_test, pred)
-
-
-    # XGBoost
-    xgb = XGBRegressor()
-    xgb.fit(X_train, y_train)
-    pred = xgb.predict(X_test)
-    evaluate("XGBoost", crop, y_test, pred)
-
-
-    # ARIMA
     try:
+
+        price = df[(crop, "Modal Price (₹)")]
+
+        price = pd.to_numeric(price, errors="coerce")
+
+        price = price.ffill()
+
+        data = pd.DataFrame({"price": price})
+
+        data["lag1"] = data["price"].shift(1)
+
+        data = data.dropna()
+
+        if len(data) < 20:
+            continue
+
+
+        X = data[["lag1"]]
+        y = data["price"]
+
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.2, shuffle=False
+        )
+
+
+        # Linear Regression
+        lr = LinearRegression()
+        lr.fit(X_train, y_train)
+        pred = lr.predict(X_test)
+        evaluate("Linear Regression", crop, y_test, pred)
+
+
+        # Random Forest
+        rf = RandomForestRegressor()
+        rf.fit(X_train, y_train)
+        pred = rf.predict(X_test)
+        evaluate("Random Forest", crop, y_test, pred)
+
+
+        # SVR
+        svr = SVR()
+        svr.fit(X_train, y_train)
+        pred = svr.predict(X_test)
+        evaluate("SVR", crop, y_test, pred)
+
+
+        # Decision Tree
+        dt = DecisionTreeRegressor()
+        dt.fit(X_train, y_train)
+        pred = dt.predict(X_test)
+        evaluate("Decision Tree", crop, y_test, pred)
+
+
+        # XGBoost
+        xgb = XGBRegressor()
+        xgb.fit(X_train, y_train)
+        pred = xgb.predict(X_test)
+        evaluate("XGBoost", crop, y_test, pred)
+
+
+        # ARIMA
         arima = ARIMA(y_train, order=(1,1,1))
         model = arima.fit()
 
@@ -135,7 +120,7 @@ for crop in df_numeric.columns:
         evaluate("ARIMA", crop, y_test, pred)
 
     except:
-        print("ARIMA failed for", crop)
+        print("Skipping crop:", crop)
 
 
 # -----------------------------
@@ -150,5 +135,5 @@ results_df.to_csv(
     index=False
 )
 
-print("\nFinal Model Comparison:")
+print("\nFinal Model Comparison")
 print(results_df)
