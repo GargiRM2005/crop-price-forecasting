@@ -7,65 +7,68 @@ from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.svm import SVR
 from sklearn.tree import DecisionTreeRegressor
-from sklearn.metrics import mean_absolute_error, mean_squared_error
+from sklearn.metrics import mean_squared_error
 
 from xgboost import XGBRegressor
 from statsmodels.tsa.arima.model import ARIMA
 
-from reportlab.platypus import SimpleDocTemplate, Table
-
-# ----------------------------
+# ---------------------------
 # LOAD DATASET
-# ----------------------------
+# ---------------------------
 
-df = pd.read_excel("crop_data.xlsx", header=1)
+file_path = "crop_data.xlsx"
+
+df = pd.read_excel(file_path, header=1)
 
 print("Original dataset shape:", df.shape)
 print(df.head())
 
-# convert numbers
+# Convert values to numeric where possible
 df = df.apply(pd.to_numeric, errors="ignore")
 
-# fill missing values with previous value
+# Fill missing values with previous value
 df = df.ffill()
 
-# select numeric columns
+# Select numeric columns (these represent crops)
 numeric_cols = df.select_dtypes(include=np.number).columns
 
-print("Numeric columns:", numeric_cols)
+print("Detected crop columns:", numeric_cols)
 
-results = []
-monthly_predictions = []
+# Create results folder
+os.makedirs("results", exist_ok=True)
 
-# ----------------------------
-# ERROR METRICS
-# ----------------------------
+all_results = []
 
-def calculate_metrics(y_true, y_pred):
+# ---------------------------
+# METRICS FUNCTION
+# ---------------------------
 
-    mad = np.mean(np.abs(y_true - y_pred))
+def calculate_metrics(actual, predicted):
 
-    mse = mean_squared_error(y_true, y_pred)
+    mad = np.mean(np.abs(actual - predicted))
+
+    mse = mean_squared_error(actual, predicted)
 
     rmse = np.sqrt(mse)
 
-    mape = np.mean(np.abs((y_true - y_pred) / y_true)) * 100
+    mape = np.mean(np.abs((actual - predicted) / actual)) * 100
 
     error_percent = mape
 
     return mad, mse, rmse, mape, error_percent
 
 
-# ----------------------------
-# MODEL LOOP
-# ----------------------------
+# ---------------------------
+# FORECAST LOOP
+# ---------------------------
 
-for crop in numeric_cols[:5]:
+for crop in numeric_cols:
 
     print("\nProcessing crop:", crop)
 
     series = df[crop].dropna()
 
+    # create lag feature
     lag = series.shift(1)
 
     data = pd.DataFrame({
@@ -74,7 +77,7 @@ for crop in numeric_cols[:5]:
     }).dropna()
 
     if len(data) < 10:
-        print("Skipping crop (too little data)")
+        print("Skipping crop (not enough data)")
         continue
 
     X = data[["lag1"]]
@@ -87,21 +90,18 @@ for crop in numeric_cols[:5]:
     )
 
     models = {
-
         "Linear Regression": LinearRegression(),
-
         "Random Forest": RandomForestRegressor(),
-
         "SVR": SVR(),
-
         "Decision Tree": DecisionTreeRegressor(),
-
         "XGBoost": XGBRegressor()
     }
 
-    # ----------------------------
-    # RUN ML MODELS
-    # ----------------------------
+    crop_results = []
+
+    # ---------------------------
+    # MACHINE LEARNING MODELS
+    # ---------------------------
 
     for name, model in models.items():
 
@@ -111,7 +111,16 @@ for crop in numeric_cols[:5]:
 
         mad, mse, rmse, mape, error_percent = calculate_metrics(y_test, pred)
 
-        results.append({
+        crop_results.append([
+            name,
+            mad,
+            mse,
+            rmse,
+            mape,
+            error_percent
+        ])
+
+        all_results.append({
             "Crop": crop,
             "Model": name,
             "MAD": mad,
@@ -121,31 +130,29 @@ for crop in numeric_cols[:5]:
             "Error (%)": error_percent
         })
 
-        # save monthly predictions
-        for i in range(len(pred)):
-
-            monthly_predictions.append({
-                "Crop": crop,
-                "Model": name,
-                "Actual": y_test.iloc[i],
-                "Predicted": pred[i]
-            })
-
-    # ----------------------------
+    # ---------------------------
     # ARIMA MODEL
-    # ----------------------------
+    # ---------------------------
 
     try:
 
         arima = ARIMA(y_train, order=(1,1,1))
-
         model = arima.fit()
 
         pred = model.forecast(len(y_test))
 
         mad, mse, rmse, mape, error_percent = calculate_metrics(y_test, pred)
 
-        results.append({
+        crop_results.append([
+            "ARIMA",
+            mad,
+            mse,
+            rmse,
+            mape,
+            error_percent
+        ])
+
+        all_results.append({
             "Crop": crop,
             "Model": "ARIMA",
             "MAD": mad,
@@ -158,35 +165,36 @@ for crop in numeric_cols[:5]:
     except:
         print("ARIMA failed for", crop)
 
+    # ---------------------------
+    # CREATE TABLE FOR CROP
+    # ---------------------------
 
-# ----------------------------
-# SAVE RESULTS
-# ----------------------------
+    crop_table = pd.DataFrame(
+        crop_results,
+        columns=[
+            "Model",
+            "MAD",
+            "MSE",
+            "RMSE",
+            "MAPE (%)",
+            "Error (%)"
+        ]
+    )
 
-os.makedirs("results", exist_ok=True)
+    print("\nForecast Error Table for", crop)
+    print(crop_table)
 
-results_df = pd.DataFrame(results)
-monthly_df = pd.DataFrame(monthly_predictions)
+    # Save crop table
+    crop_table.to_csv(f"results/{crop}_forecast_results.csv", index=False)
 
-results_df.to_csv("results/model_comparison.csv", index=False)
-monthly_df.to_csv("results/monthly_predictions.csv", index=False)
 
-print("\nModel Comparison Table")
-print(results_df)
+# ---------------------------
+# SAVE ALL RESULTS
+# ---------------------------
 
-# ----------------------------
-# EXPORT PDF
-# ----------------------------
+final_df = pd.DataFrame(all_results)
 
-data = [results_df.columns.tolist()] + results_df.values.tolist()
+final_df.to_csv("results/model_comparison_all_crops.csv", index=False)
 
-pdf = SimpleDocTemplate("results/model_results.pdf")
-
-table = Table(data)
-
-pdf.build([table])
-
-print("\nFiles Generated:")
-print("results/model_comparison.csv")
-print("results/monthly_predictions.csv")
-print("results/model_results.pdf")
+print("\nAll crop results saved to:")
+print("results/model_comparison_all_crops.csv")
