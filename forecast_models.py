@@ -1,4 +1,4 @@
-import pandas as pd
+importimport pandas as pd
 import numpy as np
 import os
 
@@ -29,21 +29,16 @@ print(df.head())
 # Forward fill missing values
 df = df.ffill()
 
-# Select numeric columns only
+# Keep numeric columns only
 df_numeric = df.select_dtypes(include=[np.number])
 
-print("Numeric columns found:", df_numeric.columns)
-
-# Remove columns with too many missing values
-df_numeric = df_numeric.dropna(axis=1, thresh=len(df_numeric)*0.5)
-
-print("Remaining columns:", df_numeric.columns)
+print("Numeric columns:", df_numeric.columns)
 
 results = []
 
 
 # -----------------------------
-# Evaluation Function
+# Evaluation function
 # -----------------------------
 def evaluate(model_name, crop, y_true, y_pred):
 
@@ -59,15 +54,20 @@ def evaluate(model_name, crop, y_true, y_pred):
 
 
 # -----------------------------
-# Forecast Each Crop
+# Run models for each crop
 # -----------------------------
 for crop in df_numeric.columns:
 
-    print("\nProcessing crop:", crop)
+    print("\nProcessing:", crop)
 
     data = df_numeric[[crop]].copy()
 
-    # Lag feature
+    # Skip if column mostly empty
+    if data[crop].count() < 20:
+        print("Skipping (too many missing values)")
+        continue
+
+    # Create lag feature
     data["lag1"] = data[crop].shift(1)
 
     data = data.dropna()
@@ -83,11 +83,13 @@ for crop in df_numeric.columns:
         X, y, test_size=0.2, shuffle=False
     )
 
+
     # 1 Linear Regression
     lr = LinearRegression()
     lr.fit(X_train, y_train)
     pred = lr.predict(X_test)
     evaluate("Linear Regression", crop, y_test, pred)
+
 
     # 2 Random Forest
     rf = RandomForestRegressor()
@@ -95,11 +97,13 @@ for crop in df_numeric.columns:
     pred = rf.predict(X_test)
     evaluate("Random Forest", crop, y_test, pred)
 
+
     # 3 SVR
     svr = SVR()
     svr.fit(X_train, y_train)
     pred = svr.predict(X_test)
     evaluate("SVR", crop, y_test, pred)
+
 
     # 4 Decision Tree
     dt = DecisionTreeRegressor()
@@ -107,11 +111,13 @@ for crop in df_numeric.columns:
     pred = dt.predict(X_test)
     evaluate("Decision Tree", crop, y_test, pred)
 
+
     # 5 XGBoost
     xgb = XGBRegressor()
     xgb.fit(X_train, y_train)
     pred = xgb.predict(X_test)
     evaluate("XGBoost", crop, y_test, pred)
+
 
     # 6 ARIMA
     try:
@@ -138,5 +144,5 @@ results_df.to_csv(
     index=False
 )
 
-print("\nFinal Model Comparison:")
+print("\nFinal Model Comparison")
 print(results_df)
